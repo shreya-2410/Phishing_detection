@@ -15,6 +15,30 @@ function isIpAddress(hostname) {
   return false;
 }
 
+function getRegistrableDomain(hostname) {
+  const labels = hostname.split(".").filter(Boolean);
+  if (labels.length >= 2) {
+    return labels.slice(-2).join(".");
+  }
+  return hostname;
+}
+
+function isLegitimateDomain(hostname) {
+  // Small whitelist of widely trusted domains. Reduce false positives.
+  const registrable = getRegistrableDomain(hostname.toLowerCase());
+  const whitelist = new Set([
+    "amazon.com",
+    "google.com",
+    "wikipedia.org",
+    "github.com",
+    "microsoft.com",
+    "apple.com",
+    "paypal.com",
+    "netflix.com",
+  ]);
+  return whitelist.has(registrable);
+}
+
 function analyzeUrl(urlString) {
   const reasons = [];
   try {
@@ -119,6 +143,12 @@ async function checkUrlForPhishing(tabId, urlString) {
     const hostname = parsed.hostname.toLowerCase();
     const fullUrl = parsed.href;
 
+    // Early allowlist: known legitimate domains
+    if (isLegitimateDomain(hostname)) {
+      chrome.storage.local.set({ isSuspicious: false });
+      return false;
+    }
+
     let suspicious = false;
 
     // 1) Long/obfuscated URL: Excessive length and encoding may hide the true destination
@@ -180,6 +210,19 @@ async function checkUrlForPhishing(tabId, urlString) {
       suspicious = true;
     }
 
+    // 3b) Brand in userinfo + IP as host (e.g., www.amazon.com@192.168.0.1)
+    //     The brand appears before '@' to mislead; the real host is the IP after '@'.
+    const hasAtInUrl = fullUrl.includes("@");
+    const userInfoRaw = decodeURIComponent(
+      [parsed.username, parsed.password].filter(Boolean).join(":")
+    );
+    const brandInUserInfo = brands.some((brand) =>
+      leetNormalize(userInfoRaw).includes(brand)
+    );
+    if (!suspicious && hasAtInUrl && isIpAddress(hostname) && brandInUserInfo) {
+      suspicious = true;
+    }
+
     // 4) Punycode/IDN usage: Can mask visually deceptive characters (IDN homograph attacks)
     //    While not always malicious, it warrants extra caution when present with other signals.
     const usesPunycode = hostname.includes("xn--");
@@ -191,6 +234,31 @@ async function checkUrlForPhishing(tabId, urlString) {
     const hyphenCount = (hostname.match(/-/g) || []).length;
     const subdomainCount = Math.max(labels.length - 2, 0);
     if (!suspicious && (hyphenCount >= 4 || subdomainCount >= 3)) {
+      suspicious = true;
+    }
+
+    // 6) Sensitive keywords only when paired with non-standard TLDs
+    //    Attackers often choose cheap TLDs (.xyz, .biz, etc.) to host phishing with keywords.
+    const sensitiveKeywords = /(login|verify|account|secure|wallet|password|reset|unlock|support)/i;
+    const pathAndQuery = `${parsed.pathname}${parsed.search}`.toLowerCase();
+    const hasSensitiveKeyword = sensitiveKeywords.test(pathAndQuery);
+    const tld = labels.length ? labels[labels.length - 1] : "";
+    const nonStandardTlds = new Set([
+      "xyz",
+      "biz",
+      "top",
+      "click",
+      "link",
+      "zip",
+      "online",
+      "fit",
+      "loan",
+      "gq",
+      "cf",
+      "ml",
+      "work",
+    ]);
+    if (!suspicious && hasSensitiveKeyword && nonStandardTlds.has(tld)) {
       suspicious = true;
     }
 
