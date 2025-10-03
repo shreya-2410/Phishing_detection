@@ -111,7 +111,7 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 
 async function checkUrlForPhishing(tabId, urlString) {
   // Applies several simple heuristics to flag likely phishing URLs.
-  // If suspicious, injects the warning overlay content script into the tab.
+  // Stores the result in chrome.storage.local as { isSuspicious: boolean }.
   try {
     if (typeof urlString !== "string" || !/^https?:/i.test(urlString)) return;
 
@@ -194,16 +194,8 @@ async function checkUrlForPhishing(tabId, urlString) {
       suspicious = true;
     }
 
-    if (suspicious) {
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId },
-          files: ["content.js"],
-        });
-      } catch (e) {
-        // Some pages disallow injection; ignore
-      }
-    }
+    // Persist detection status for popup consumption
+    chrome.storage.local.set({ isSuspicious: suspicious });
   } catch (e) {
     // Ignore unexpected errors
   }
