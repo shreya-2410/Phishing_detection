@@ -1,6 +1,9 @@
 // background.js - MV3 service worker
 
 const BADGE_WARN_TEXT = "WARN";
+const ICON_SAFE = "icon_safe.png";
+const ICON_WARNING = "icon_warning.png";
+const ICON_DEFAULT = "icon_default.png";
 
 function isIpAddress(hostname) {
   // IPv4 check
@@ -120,7 +123,10 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === "complete") {
+  if (changeInfo.status === "loading") {
+    // While loading, show default icon to indicate in-progress check
+    chrome.action.setIcon({ tabId, path: ICON_DEFAULT });
+  } else if (changeInfo.status === "complete") {
     analyzeTab(tabId);
     const url = tab && tab.url ? tab.url : undefined;
     if (url) {
@@ -146,6 +152,9 @@ async function checkUrlForPhishing(tabId, urlString) {
     // Early allowlist: known legitimate domains
     if (isLegitimateDomain(hostname)) {
       chrome.storage.local.set({ isSuspicious: false });
+      try {
+        await chrome.action.setIcon({ tabId, path: ICON_SAFE });
+      } catch (_) {}
       return false;
     }
 
@@ -262,8 +271,11 @@ async function checkUrlForPhishing(tabId, urlString) {
       suspicious = true;
     }
 
-    // Persist detection status for popup consumption
+    // Persist detection status and update action icon
     chrome.storage.local.set({ isSuspicious: suspicious });
+    try {
+      await chrome.action.setIcon({ tabId, path: suspicious ? ICON_WARNING : ICON_SAFE });
+    } catch (_) {}
   } catch (e) {
     // Ignore unexpected errors
   }

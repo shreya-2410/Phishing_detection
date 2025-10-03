@@ -10,6 +10,18 @@
   },
   "action": {
     "default_title": "Phishing Detector",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon_default.png",
+      "32": "icon_default.png",
+      "48": "icon_default.png",
+      "128": "icon_default.png"
+    }
+  },
+  "icons": {
+    "16": "icon_default.png",
+    "32": "icon_default.png",
+    "48": "icon_default.png",
+    "128": "icon_default.png"
   }
 }
