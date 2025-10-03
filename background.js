@@ -42,6 +42,24 @@ function isLegitimateDomain(hostname) {
   return whitelist.has(registrable);
 }
 
+function isWhitelisted(hostname) {
+  // Hard allowlist of well-known, legitimate domains to avoid false positives
+  const registrable = getRegistrableDomain(hostname.toLowerCase());
+  const whitelist = new Set([
+    "amazon.com",
+    "google.com",
+    "wikipedia.org",
+    "github.com",
+    "microsoft.com",
+    "apple.com",
+    "paypal.com",
+    "netflix.com",
+    "cloudflare.com",
+    "mozilla.org",
+  ]);
+  return whitelist.has(registrable);
+}
+
 function analyzeUrl(urlString) {
   const reasons = [];
   try {
@@ -149,7 +167,16 @@ async function checkUrlForPhishing(tabId, urlString) {
     const hostname = parsed.hostname.toLowerCase();
     const fullUrl = parsed.href;
 
-    // Early allowlist: known legitimate domains
+    // Early allowlist (override all rules): if whitelisted, do not flag
+    if (isWhitelisted(hostname)) {
+      chrome.storage.local.set({ isSuspicious: false });
+      try {
+        await chrome.action.setIcon({ tabId, path: ICON_SAFE });
+      } catch (_) {}
+      return false;
+    }
+
+    // Secondary allowlist to further reduce noise
     if (isLegitimateDomain(hostname)) {
       chrome.storage.local.set({ isSuspicious: false });
       try {
@@ -160,7 +187,7 @@ async function checkUrlForPhishing(tabId, urlString) {
 
     let suspicious = false;
 
-    // 1) Long/obfuscated URL: Excessive length and encoding may hide the true destination
+    // 1) Long/obfuscated URL: Excessive length and encoding may hide the true destination.
     //    Attackers often use very long paths/queries or heavy percent-encoding to obscure intent.
     const urlIsVeryLong = fullUrl.length >= 140; // length threshold
     const percentEncodedCount = (fullUrl.match(/%[0-9a-fA-F]{2}/g) || []).length; // %xx sequences
@@ -177,7 +204,7 @@ async function checkUrlForPhishing(tabId, urlString) {
       suspicious = true;
     }
 
-    // 3) Brand impersonation via character substitution (e.g., amaz0n -> amazon)
+    // 3) Brand impersonation via character substitution (e.g., amaz0n -> amazon).
     //    Homoglyph/leet substitutions are a common trick to mimic trusted brands.
     const brands = [
       "google",
@@ -219,7 +246,7 @@ async function checkUrlForPhishing(tabId, urlString) {
       suspicious = true;
     }
 
-    // 3b) Brand in userinfo + IP as host (e.g., www.amazon.com@192.168.0.1)
+    // 3b) Brand in userinfo + IP as host (e.g., www.amazon.com@192.168.0.1).
     //     The brand appears before '@' to mislead; the real host is the IP after '@'.
     const hasAtInUrl = fullUrl.includes("@");
     const userInfoRaw = decodeURIComponent(
@@ -232,21 +259,32 @@ async function checkUrlForPhishing(tabId, urlString) {
       suspicious = true;
     }
 
-    // 4) Punycode/IDN usage: Can mask visually deceptive characters (IDN homograph attacks)
+    // 3c) Brand directly combined with an IP or immediate digits in the hostname (e.g., amazon.192.168.1.1, amazon123.com).
+    //     Attackers append IPs or digits to brand names to trick users at a glance.
+    const hostnameHasIp = /\b\d{1,3}(?:\.\d{1,3}){3}\b/.test(hostname);
+    const brandFollowedByDigitsInSLD = brands.some((brand) =>
+      new RegExp(`^${brand}\\d+$`).test(normalizedSecondLevel)
+    );
+    const brandAppearsAndIp = brands.some((brand) => hostname.includes(brand)) && hostnameHasIp;
+    if (!suspicious && (brandAppearsAndIp || brandFollowedByDigitsInSLD)) {
+      suspicious = true;
+    }
+
+    // 4) Punycode/IDN usage: Can mask visually deceptive characters (IDN homograph attacks).
     //    While not always malicious, it warrants extra caution when present with other signals.
     const usesPunycode = hostname.includes("xn--");
     if (!suspicious && usesPunycode) {
       suspicious = true;
     }
 
-    // 5) Excessive subdomains or hyphens: Often used to confuse users about the true domain
+    // 5) Excessive subdomains or hyphens: Often used to confuse users about the true domain.
     const hyphenCount = (hostname.match(/-/g) || []).length;
     const subdomainCount = Math.max(labels.length - 2, 0);
     if (!suspicious && (hyphenCount >= 4 || subdomainCount >= 3)) {
       suspicious = true;
     }
 
-    // 6) Sensitive keywords only when paired with non-standard TLDs
+    // 6) Sensitive keywords only when paired with non-standard TLDs.
     //    Attackers often choose cheap TLDs (.xyz, .biz, etc.) to host phishing with keywords.
     const sensitiveKeywords = /(login|verify|account|secure|wallet|password|reset|unlock|support)/i;
     const pathAndQuery = `${parsed.pathname}${parsed.search}`.toLowerCase();
@@ -268,6 +306,16 @@ async function checkUrlForPhishing(tabId, urlString) {
       "work",
     ]);
     if (!suspicious && hasSensitiveKeyword && nonStandardTlds.has(tld)) {
+      suspicious = true;
+    }
+
+    // 7) Very long and complex URLs that are hard to read.
+    //    High symbol density and many query params are often used to obfuscate malicious targets.
+    const nonAlnumCount = (fullUrl.replace(/[a-z0-9]/gi, "")).length;
+    const nonAlnumRatio = nonAlnumCount / Math.max(fullUrl.length, 1);
+    const queryCount = Array.from(new URLSearchParams(parsed.search).keys()).length;
+    const veryLongAndComplex = fullUrl.length >= 220 || (fullUrl.length >= 160 && (nonAlnumRatio >= 0.35 || queryCount >= 10));
+    if (!suspicious && veryLongAndComplex) {
       suspicious = true;
     }
 
