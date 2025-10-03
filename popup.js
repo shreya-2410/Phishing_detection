@@ -1,28 +1,37 @@
 document.addEventListener("DOMContentLoaded", async () => {
+  const statusDiv = document.getElementById("status");
+  const detailsDiv = document.getElementById("details");
+  if (!statusDiv || !detailsDiv) return;
+
   try {
-    const statusDiv = document.getElementById("status");
-    if (!statusDiv) return;
+    const { isSuspicious, suspiciousUrl, suspiciousReason } = await chrome.storage.local.get([
+      "isSuspicious",
+      "suspiciousUrl",
+      "suspiciousReason",
+    ]);
 
-    const { isSuspicious } = await chrome.storage.local.get("isSuspicious");
-    const suspicious = Boolean(isSuspicious);
-
-    // Reset classes
+    // Reset classes and contents
     statusDiv.classList.remove("safe", "warning");
+    detailsDiv.textContent = "";
 
-    if (suspicious) {
+    if (isSuspicious) {
       statusDiv.classList.add("warning");
-      statusDiv.textContent = "Phishing Detected";
+      statusDiv.textContent = "This site is suspicious.";
+
+      if (suspiciousUrl || suspiciousReason) {
+        const urlText = suspiciousUrl ? suspiciousUrl : "(URL not available)";
+        const reasonText = suspiciousReason ? suspiciousReason : "Unknown reason";
+        detailsDiv.textContent = `${urlText} — ${reasonText}`;
+      }
     } else {
       statusDiv.classList.add("safe");
       statusDiv.textContent = "Safe to browse";
+      detailsDiv.textContent = "No warnings for this page.";
     }
   } catch (e) {
-    // If storage access fails, show safe by default
-    const statusDiv = document.getElementById("status");
-    if (statusDiv) {
-      statusDiv.classList.remove("warning");
-      statusDiv.classList.add("safe");
-      statusDiv.textContent = "Safe to browse";
-    }
+    statusDiv.classList.remove("warning");
+    statusDiv.classList.add("safe");
+    statusDiv.textContent = "Safe to browse";
+    detailsDiv.textContent = "Unable to load detection status.";
   }
 });

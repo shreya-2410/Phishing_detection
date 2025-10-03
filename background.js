@@ -186,6 +186,7 @@ async function checkUrlForPhishing(tabId, urlString) {
     }
 
     let suspicious = false;
+    let reason = null;
 
     // 1) Long/obfuscated URL: Excessive length and encoding may hide the true destination.
     //    Attackers often use very long paths/queries or heavy percent-encoding to obscure intent.
@@ -196,12 +197,14 @@ async function checkUrlForPhishing(tabId, urlString) {
     const tooManySegments = pathSegments >= 6;
     if (urlIsVeryLong || manyEncodedSegments || tooManySegments) {
       suspicious = true;
+      if (!reason) reason = "long/obfuscated URL"; // Hard to visually verify destination
     }
 
     // 2) IP address in place of domain: Phishing sites often hide behind raw IPs
     //    Legitimate brands rarely ask users to log in on a bare IP address.
     if (!suspicious && isIpAddress(hostname)) {
       suspicious = true;
+      if (!reason) reason = "contains IP address"; // Brands seldom use bare IPs for user actions
     }
 
     // 3) Brand impersonation via character substitution (e.g., amaz0n -> amazon).
@@ -244,6 +247,7 @@ async function checkUrlForPhishing(tabId, urlString) {
     });
     if (!suspicious && looksLikeBrand) {
       suspicious = true;
+      if (!reason) reason = "brand impersonation"; // Character substitutions mimic trusted brands
     }
 
     // 3b) Brand in userinfo + IP as host (e.g., www.amazon.com@192.168.0.1).
@@ -257,6 +261,7 @@ async function checkUrlForPhishing(tabId, urlString) {
     );
     if (!suspicious && hasAtInUrl && isIpAddress(hostname) && brandInUserInfo) {
       suspicious = true;
+      if (!reason) reason = "brand in userinfo with IP host"; // Misleads by placing brand before '@'
     }
 
     // 3c) Brand directly combined with an IP or immediate digits in the hostname (e.g., amazon.192.168.1.1, amazon123.com).
@@ -268,6 +273,7 @@ async function checkUrlForPhishing(tabId, urlString) {
     const brandAppearsAndIp = brands.some((brand) => hostname.includes(brand)) && hostnameHasIp;
     if (!suspicious && (brandAppearsAndIp || brandFollowedByDigitsInSLD)) {
       suspicious = true;
+      if (!reason) reason = "brand with digits/IP in hostname"; // Adds digits/IP to trusted brand name
     }
 
     // 4) Punycode/IDN usage: Can mask visually deceptive characters (IDN homograph attacks).
@@ -275,6 +281,7 @@ async function checkUrlForPhishing(tabId, urlString) {
     const usesPunycode = hostname.includes("xn--");
     if (!suspicious && usesPunycode) {
       suspicious = true;
+      if (!reason) reason = "punycode/IDN usage"; // IDN can hide deceptive look-alike characters
     }
 
     // 5) Excessive subdomains or hyphens: Often used to confuse users about the true domain.
@@ -282,6 +289,7 @@ async function checkUrlForPhishing(tabId, urlString) {
     const subdomainCount = Math.max(labels.length - 2, 0);
     if (!suspicious && (hyphenCount >= 4 || subdomainCount >= 3)) {
       suspicious = true;
+      if (!reason) reason = "excessive subdomains/hyphens"; // Overly complex hosts confuse true domain
     }
 
     // 6) Sensitive keywords only when paired with non-standard TLDs.
@@ -307,6 +315,7 @@ async function checkUrlForPhishing(tabId, urlString) {
     ]);
     if (!suspicious && hasSensitiveKeyword && nonStandardTlds.has(tld)) {
       suspicious = true;
+      if (!reason) reason = "sensitive keywords with non-standard TLD"; // Cheap TLD plus login keywords
     }
 
     // 7) Very long and complex URLs that are hard to read.
@@ -317,10 +326,15 @@ async function checkUrlForPhishing(tabId, urlString) {
     const veryLongAndComplex = fullUrl.length >= 220 || (fullUrl.length >= 160 && (nonAlnumRatio >= 0.35 || queryCount >= 10));
     if (!suspicious && veryLongAndComplex) {
       suspicious = true;
+      if (!reason) reason = "very long and complex URL"; // Hard-to-read URLs can conceal malicious intent
     }
 
     // Persist detection status and update action icon
-    chrome.storage.local.set({ isSuspicious: suspicious });
+    chrome.storage.local.set({
+      isSuspicious: suspicious,
+      suspiciousUrl: suspicious ? fullUrl : null,
+      suspiciousReason: suspicious ? reason : null,
+    });
     try {
       await chrome.action.setIcon({ tabId, path: suspicious ? ICON_WARNING : ICON_SAFE });
     } catch (_) {}
