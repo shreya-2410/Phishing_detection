@@ -96,11 +96,44 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === "complete" || changeInfo.url) {
+  if (changeInfo.status === "complete") {
     analyzeTab(tabId);
+    const url = tab && tab.url ? tab.url : undefined;
+    if (url && checkUrlForPhishing(url)) {
+      warnUserAboutSuspiciousUrl(tabId, url);
+    }
   }
 });
 
 chrome.tabs.onActivated.addListener((activeInfo) => {
   analyzeTab(activeInfo.tabId);
 });
+
+function checkUrlForPhishing(urlString) {
+  try {
+    if (typeof urlString !== "string") return false;
+    const lower = urlString.toLowerCase();
+    const hasLogin = lower.includes("login");
+    const hasDigit = /\d/.test(urlString);
+    return hasLogin && hasDigit; // e.g., "login123"
+  } catch (e) {
+    return false;
+  }
+}
+
+async function warnUserAboutSuspiciousUrl(tabId, urlString) {
+  try {
+    if (!/^https?:/i.test(urlString)) return; // Don't inject on non-web schemes
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (message) => {
+        alert(message);
+      },
+      args: [
+        "Warning: This URL looks suspicious (contains 'login' and numbers). Proceed with caution.",
+      ],
+    });
+  } catch (e) {
+    // Some pages (e.g., Chrome Web Store) disallow injection; ignore errors
+  }
+}
