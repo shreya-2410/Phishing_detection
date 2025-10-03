@@ -1,0 +1,210 @@
+// background.js - MV3 service worker
+
+const BADGE_WARN_TEXT = "WARN";
+
+function isIpAddress(hostname) {
+  // IPv4 check
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) {
+    const octets = hostname.split(".").map(Number);
+    return octets.every((octet) => octet >= 0 && octet <= 255);
+  }
+  // IPv6 (loose) check
+  if (/^[0-9a-f:]+$/i.test(hostname) && hostname.includes(":")) {
+    return true;
+  }
+  return false;
+}
+
+function analyzeUrl(urlString) {
+  const reasons = [];
+  try {
+    const url = new URL(urlString);
+
+    // Only analyze http(s)
+    if (!/^https?:$/.test(url.protocol)) {
+      return reasons;
+    }
+
+    const hostname = url.hostname.toLowerCase();
+    const fullUrl = url.href.toLowerCase();
+
+    if (hostname.includes("xn--")) {
+      reasons.push("IDN (punycode) domain");
+    }
+
+    if (isIpAddress(hostname)) {
+      reasons.push("IP address as hostname");
+    }
+
+    const hyphenCount = (hostname.match(/-/g) || []).length;
+    if (hyphenCount >= 4) {
+      reasons.push("Many hyphens in domain");
+    }
+
+    if (fullUrl.includes("@")) {
+      reasons.push("Contains '@' in URL");
+    }
+
+    const sensitiveKeywords = /(login|verify|account|secure|wallet|password)/i;
+    if (sensitiveKeywords.test(url.pathname) || sensitiveKeywords.test(url.search)) {
+      reasons.push("Sensitive keywords in path/query");
+    }
+  } catch (e) {
+    // Invalid URL or parsing error: treat as no reasons
+  }
+  return reasons;
+}
+
+async function updateBadge(tabId, reasons) {
+  try {
+    if (reasons.length > 0) {
+      await chrome.action.setBadgeText({ tabId, text: BADGE_WARN_TEXT });
+      await chrome.action.setBadgeBackgroundColor({ tabId, color: "#d0021b" });
+      await chrome.action.setTitle({ tabId, title: `Suspicious URL: ${reasons.join(", ")}` });
+    } else {
+      await chrome.action.setBadgeText({ tabId, text: "" });
+      await chrome.action.setTitle({ tabId, title: "Phishing Detector" });
+    }
+  } catch (e) {
+    // Ignore errors (tab may not exist anymore)
+  }
+}
+
+async function analyzeTab(tabId) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab || !tab.url) return;
+
+    if (
+      tab.url.startsWith("chrome://") ||
+      tab.url.startsWith("chrome-extension://") ||
+      tab.url.startsWith("about:")
+    ) {
+      await updateBadge(tabId, []);
+      return;
+    }
+
+    const reasons = analyzeUrl(tab.url);
+    await updateBadge(tabId, reasons);
+  } catch (e) {
+    // Tab may have been closed or become inaccessible
+  }
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  // Service worker installed; badge will be updated on tab events
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === "complete") {
+    analyzeTab(tabId);
+    const url = tab && tab.url ? tab.url : undefined;
+    if (url) {
+      checkUrlForPhishing(tabId, url);
+    }
+  }
+});
+
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  analyzeTab(activeInfo.tabId);
+});
+
+async function checkUrlForPhishing(tabId, urlString) {
+  // Applies several simple heuristics to flag likely phishing URLs.
+  // If suspicious, injects the warning overlay content script into the tab.
+  try {
+    if (typeof urlString !== "string" || !/^https?:/i.test(urlString)) return;
+
+    const parsed = new URL(urlString);
+    const hostname = parsed.hostname.toLowerCase();
+    const fullUrl = parsed.href;
+
+    let suspicious = false;
+
+    // 1) Long/obfuscated URL: Excessive length and encoding may hide the true destination
+    //    Attackers often use very long paths/queries or heavy percent-encoding to obscure intent.
+    const urlIsVeryLong = fullUrl.length >= 140; // length threshold
+    const percentEncodedCount = (fullUrl.match(/%[0-9a-fA-F]{2}/g) || []).length; // %xx sequences
+    const manyEncodedSegments = percentEncodedCount >= 8;
+    const pathSegments = parsed.pathname.split("/").filter(Boolean).length;
+    const tooManySegments = pathSegments >= 6;
+    if (urlIsVeryLong || manyEncodedSegments || tooManySegments) {
+      suspicious = true;
+    }
+
+    // 2) IP address in place of domain: Phishing sites often hide behind raw IPs
+    //    Legitimate brands rarely ask users to log in on a bare IP address.
+    if (!suspicious && isIpAddress(hostname)) {
+      suspicious = true;
+    }
+
+    // 3) Brand impersonation via character substitution (e.g., amaz0n -> amazon)
+    //    Homoglyph/leet substitutions are a common trick to mimic trusted brands.
+    const brands = [
+      "google",
+      "facebook",
+      "apple",
+      "microsoft",
+      "amazon",
+      "paypal",
+      "netflix",
+      "chase",
+      "bankofamerica",
+      "github",
+    ];
+
+    const leetNormalize = (label) =>
+      label
+        .toLowerCase()
+        .replace(/0/g, "o")
+        .replace(/[1!]/g, "l")
+        .replace(/3/g, "e")
+        .replace(/4/g, "a")
+        .replace(/5/g, "s")
+        .replace(/7/g, "t")
+        .replace(/@/g, "a");
+
+    const labels = hostname.split(".");
+    const secondLevel = labels.length >= 2 ? labels[labels.length - 2] : hostname;
+    const normalizedSecondLevel = leetNormalize(secondLevel);
+
+    const looksLikeBrand = brands.some((brand) => {
+      if (normalizedSecondLevel === brand && secondLevel !== brand) return true; // e.g., amaz0n -> amazon
+      // Also consider simple prefix/suffix tricks like "secure-amazon-login"
+      return (
+        leetNormalize(secondLevel).includes(brand) &&
+        secondLevel !== brand
+      );
+    });
+    if (!suspicious && looksLikeBrand) {
+      suspicious = true;
+    }
+
+    // 4) Punycode/IDN usage: Can mask visually deceptive characters (IDN homograph attacks)
+    //    While not always malicious, it warrants extra caution when present with other signals.
+    const usesPunycode = hostname.includes("xn--");
+    if (!suspicious && usesPunycode) {
+      suspicious = true;
+    }
+
+    // 5) Excessive subdomains or hyphens: Often used to confuse users about the true domain
+    const hyphenCount = (hostname.match(/-/g) || []).length;
+    const subdomainCount = Math.max(labels.length - 2, 0);
+    if (!suspicious && (hyphenCount >= 4 || subdomainCount >= 3)) {
+      suspicious = true;
+    }
+
+    if (suspicious) {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          files: ["content.js"],
+        });
+      } catch (e) {
+        // Some pages disallow injection; ignore
+      }
+    }
+  } catch (e) {
+    // Ignore unexpected errors
+  }
+}

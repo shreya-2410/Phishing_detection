@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Basic Phishing Detector",
+  "description": "Passively flags potentially suspicious URLs.",
+  "version": "0.1.0",
+  "permissions": ["tabs", "activeTab", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Phishing Detector"
+  }
+}
