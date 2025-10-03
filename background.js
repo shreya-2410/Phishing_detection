@@ -110,12 +110,91 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 });
 
 async function checkUrlForPhishing(tabId, urlString) {
+  // Applies several simple heuristics to flag likely phishing URLs.
+  // If suspicious, injects the warning overlay content script into the tab.
   try {
-    if (typeof urlString !== "string") return;
-    const lower = urlString.toLowerCase();
-    const hasLogin = lower.includes("login");
-    const hasDigit = /\d/.test(urlString);
-    if (hasLogin && hasDigit && /^https?:/i.test(urlString)) {
+    if (typeof urlString !== "string" || !/^https?:/i.test(urlString)) return;
+
+    const parsed = new URL(urlString);
+    const hostname = parsed.hostname.toLowerCase();
+    const fullUrl = parsed.href;
+
+    let suspicious = false;
+
+    // 1) Long/obfuscated URL: Excessive length and encoding may hide the true destination
+    //    Attackers often use very long paths/queries or heavy percent-encoding to obscure intent.
+    const urlIsVeryLong = fullUrl.length >= 140; // length threshold
+    const percentEncodedCount = (fullUrl.match(/%[0-9a-fA-F]{2}/g) || []).length; // %xx sequences
+    const manyEncodedSegments = percentEncodedCount >= 8;
+    const pathSegments = parsed.pathname.split("/").filter(Boolean).length;
+    const tooManySegments = pathSegments >= 6;
+    if (urlIsVeryLong || manyEncodedSegments || tooManySegments) {
+      suspicious = true;
+    }
+
+    // 2) IP address in place of domain: Phishing sites often hide behind raw IPs
+    //    Legitimate brands rarely ask users to log in on a bare IP address.
+    if (!suspicious && isIpAddress(hostname)) {
+      suspicious = true;
+    }
+
+    // 3) Brand impersonation via character substitution (e.g., amaz0n -> amazon)
+    //    Homoglyph/leet substitutions are a common trick to mimic trusted brands.
+    const brands = [
+      "google",
+      "facebook",
+      "apple",
+      "microsoft",
+      "amazon",
+      "paypal",
+      "netflix",
+      "chase",
+      "bankofamerica",
+      "github",
+    ];
+
+    const leetNormalize = (label) =>
+      label
+        .toLowerCase()
+        .replace(/0/g, "o")
+        .replace(/[1!]/g, "l")
+        .replace(/3/g, "e")
+        .replace(/4/g, "a")
+        .replace(/5/g, "s")
+        .replace(/7/g, "t")
+        .replace(/@/g, "a");
+
+    const labels = hostname.split(".");
+    const secondLevel = labels.length >= 2 ? labels[labels.length - 2] : hostname;
+    const normalizedSecondLevel = leetNormalize(secondLevel);
+
+    const looksLikeBrand = brands.some((brand) => {
+      if (normalizedSecondLevel === brand && secondLevel !== brand) return true; // e.g., amaz0n -> amazon
+      // Also consider simple prefix/suffix tricks like "secure-amazon-login"
+      return (
+        leetNormalize(secondLevel).includes(brand) &&
+        secondLevel !== brand
+      );
+    });
+    if (!suspicious && looksLikeBrand) {
+      suspicious = true;
+    }
+
+    // 4) Punycode/IDN usage: Can mask visually deceptive characters (IDN homograph attacks)
+    //    While not always malicious, it warrants extra caution when present with other signals.
+    const usesPunycode = hostname.includes("xn--");
+    if (!suspicious && usesPunycode) {
+      suspicious = true;
+    }
+
+    // 5) Excessive subdomains or hyphens: Often used to confuse users about the true domain
+    const hyphenCount = (hostname.match(/-/g) || []).length;
+    const subdomainCount = Math.max(labels.length - 2, 0);
+    if (!suspicious && (hyphenCount >= 4 || subdomainCount >= 3)) {
+      suspicious = true;
+    }
+
+    if (suspicious) {
       try {
         await chrome.scripting.executeScript({
           target: { tabId },
