@@ -160,6 +160,28 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 // Receive messages from content scripts (placeholder handler)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   try {
+    if (message && message.type === "HOVER_URL" && typeof message.url === "string") {
+      const tabId = sender && sender.tab ? sender.tab.id : undefined;
+      if (typeof tabId === "number") {
+        // Run phishing check, then respond to content script with the result
+        (async () => {
+          const result = await (async () => {
+            try {
+              await checkUrlForPhishing(tabId, message.url);
+              // Read latest stored status as a proxy for the result
+              const { isSuspicious } = await chrome.storage.local.get("isSuspicious");
+              return Boolean(isSuspicious);
+            } catch (_) {
+              return false;
+            }
+          })();
+          try {
+            sendResponse({ isSuspicious: result });
+          } catch (_) {}
+        })();
+        return true; // Keep the message channel open for async sendResponse
+      }
+    }
     // eslint-disable-next-line no-console
     console.log("Received message from content script:", message);
   } catch (_) {}
