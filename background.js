@@ -149,6 +149,15 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     const url = tab && tab.url ? tab.url : undefined;
     if (url) {
       checkUrlForPhishing(tabId, url);
+      // Also invoke ML model prediction for passive scoring
+      loadModelAndPredict(url).then((score) => {
+        if (typeof score === "number") {
+          // Optionally, we could combine this score with heuristics later
+          // For now, this is a passive call demonstrating integration
+          // eslint-disable-next-line no-console
+          console.log("ML phishing probability:", score.toFixed(3));
+        }
+      }).catch(() => {});
     }
   }
 });
@@ -401,19 +410,18 @@ async function loadModelAndPredict(url) {
       const modelUrl = chrome.runtime.getURL("model.json");
       cachedTfModel = await tf.loadLayersModel(modelUrl);
     }
-    // Placeholder preprocessing: convert URL to a trivial numeric feature (length),
-    // in real use this should match the training preprocessing.
-    const inputTensor = tf.tensor2d([[Math.min(url.length, 1024) / 1024]]);
+    // Build feature vector expected by the model using extractFeatures(url)
+    const features = extractFeatures(url);
+    const inputTensor = tf.tensor2d([features]); // shape [1, num_features]
     const output = cachedTfModel.predict(inputTensor);
-    // Ensure we get a scalar probability
+    // Ensure we get a scalar probability in [0, 1]
     const probTensor = Array.isArray(output) ? output[0] : output;
     const data = await probTensor.data();
     const probability = data[0] ?? 0;
-    const isPhishing = probability >= 0.5;
     inputTensor.dispose();
     if (probTensor !== output) probTensor.dispose();
     if (output && output.dispose) output.dispose();
-    return { probability, isPhishing };
+    return probability;
   } catch (e) {
     console.warn("Prediction failed:", e);
     return null;
