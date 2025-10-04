@@ -370,3 +370,52 @@ async function checkUrlForPhishing(tabId, urlString) {
     // Ignore unexpected errors
   }
 }
+
+// Loads a pre-trained TensorFlow.js model and predicts phishing probability for a URL
+// How this will work (high level):
+// 1) Preprocess the input URL into numerical features suitable for the model (e.g., character-level
+//    sequences, bag-of-characters, tokenized components like hostname/path/tld lengths, presence of
+//    specific symbols). This step mirrors the preprocessing used during model training.
+// 2) Use tf.loadLayersModel to load the model from the extension's packaged assets (model.json and
+//    associated weight files). Keep a cached instance to avoid reloading for each prediction.
+// 3) Run model.predict on the prepared tensor to get a phishing probability. Compare against a
+//    threshold (e.g., 0.5) to produce a boolean isPhishing result.
+// Note: Full preprocessing and tensor construction are not implemented yet; this scaffolds the API.
+let cachedTfModel = null;
+async function loadModelAndPredict(url) {
+  // Ensure TensorFlow.js is available in the service worker context. With MV3, we whitelist the
+  // CDN in the extension_pages CSP so importing TFJS at runtime is allowed if needed. In many setups
+  // you would also bundle TFJS or import it as an ES module.
+  if (!self.tf || !self.tf.loadLayersModel) {
+    // Dynamically import TensorFlow.js from CDN as a fallback
+    try {
+      await import("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js");
+    } catch (e) {
+      console.warn("Failed to load TensorFlow.js:", e);
+      return null;
+    }
+  }
+
+  try {
+    if (!cachedTfModel) {
+      const modelUrl = chrome.runtime.getURL("model.json");
+      cachedTfModel = await tf.loadLayersModel(modelUrl);
+    }
+    // Placeholder preprocessing: convert URL to a trivial numeric feature (length),
+    // in real use this should match the training preprocessing.
+    const inputTensor = tf.tensor2d([[Math.min(url.length, 1024) / 1024]]);
+    const output = cachedTfModel.predict(inputTensor);
+    // Ensure we get a scalar probability
+    const probTensor = Array.isArray(output) ? output[0] : output;
+    const data = await probTensor.data();
+    const probability = data[0] ?? 0;
+    const isPhishing = probability >= 0.5;
+    inputTensor.dispose();
+    if (probTensor !== output) probTensor.dispose();
+    if (output && output.dispose) output.dispose();
+    return { probability, isPhishing };
+  } catch (e) {
+    console.warn("Prediction failed:", e);
+    return null;
+  }
+}

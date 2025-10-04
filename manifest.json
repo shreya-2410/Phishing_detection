@@ -29,5 +29,8 @@
     "32": "icon_default.png",
     "48": "icon_default.png",
     "128": "icon_default.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0; object-src 'self'"
   }
 }
