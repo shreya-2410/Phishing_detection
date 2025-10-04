@@ -143,10 +143,18 @@ chrome.runtime.onInstalled.addListener(() => {
   // Service worker installed; badge will be updated on tab events
 });
 
+// Helper: set action icon by semantic name
+async function setActionIcon(tabId, kind) {
+  try {
+    const path = kind === "safe" ? ICON_SAFE : kind === "warning" ? ICON_WARNING : ICON_DEFAULT;
+    await chrome.action.setIcon({ tabId, path });
+  } catch (_) {}
+}
+
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === "loading") {
     // While loading, show default icon to indicate in-progress check
-    chrome.action.setIcon({ tabId, path: ICON_DEFAULT });
+    setActionIcon(tabId, "default");
   } else if (changeInfo.status === "complete") {
     analyzeTab(tabId);
     const url = tab && tab.url ? tab.url : undefined;
@@ -209,18 +217,14 @@ async function checkUrlForPhishing(tabId, urlString) {
     // Early allowlist (override all rules): if whitelisted, do not flag
     if (isWhitelisted(hostname)) {
       chrome.storage.local.set({ isSuspicious: false });
-      try {
-        await chrome.action.setIcon({ tabId, path: ICON_SAFE });
-      } catch (_) {}
+      await setActionIcon(tabId, "safe");
       return false;
     }
 
     // Secondary allowlist to further reduce noise
     if (isLegitimateDomain(hostname)) {
       chrome.storage.local.set({ isSuspicious: false });
-      try {
-        await chrome.action.setIcon({ tabId, path: ICON_SAFE });
-      } catch (_) {}
+      await setActionIcon(tabId, "safe");
       return false;
     }
 
@@ -411,9 +415,7 @@ async function checkUrlForPhishing(tabId, urlString) {
       suspiciousUrl: suspicious ? fullUrl : null,
       suspiciousReason: suspicious ? reason : null,
     });
-    try {
-      await chrome.action.setIcon({ tabId, path: suspicious ? ICON_WARNING : ICON_SAFE });
-    } catch (_) {}
+    await setActionIcon(tabId, suspicious ? "warning" : "safe");
     return suspicious;
   } catch (e) {
     // Ignore unexpected errors

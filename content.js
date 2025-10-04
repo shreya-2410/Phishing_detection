@@ -49,8 +49,33 @@
       lastAnchor = anchor;
       try {
         chrome.runtime.sendMessage({ type: "HOVER_URL", url: anchor.href }, (response) => {
-          if (response && response.isSuspicious) {
+          const isSuspicious = !!(response && response.isSuspicious);
+          if (isSuspicious) {
+            // Suspicious overlay (red)
             showTemporaryOverlayNear(anchor, event);
+          } else {
+            // Safe overlay (green, shorter display)
+            removeOverlay();
+            const rect = anchor.getBoundingClientRect();
+            const overlay = document.createElement("div");
+            overlay.textContent = "Safe Link";
+            overlay.style.position = "fixed";
+            const posX = event ? event.clientX + 10 : rect.left + rect.width + 10;
+            const posY = event ? event.clientY + 10 : rect.top;
+            overlay.style.left = `${Math.min(posX, window.innerWidth - 160)}px`;
+            overlay.style.top = `${Math.min(posY, window.innerHeight - 40)}px`;
+            overlay.style.background = "#16a34a";
+            overlay.style.color = "#fff";
+            overlay.style.padding = "6px 10px";
+            overlay.style.borderRadius = "6px";
+            overlay.style.fontSize = "12px";
+            overlay.style.fontFamily = "system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif";
+            overlay.style.zIndex = "2147483646";
+            overlay.style.boxShadow = "0 2px 8px rgba(0,0,0,0.25)";
+            overlay.style.pointerEvents = "none";
+            document.documentElement.appendChild(overlay);
+            overlayEl = overlay;
+            overlayTimeoutId = window.setTimeout(removeOverlay, 1500);
           }
         });
       } catch (_) {
