@@ -157,6 +157,14 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
   analyzeTab(activeInfo.tabId);
 });
 
+// Receive messages from content scripts (placeholder handler)
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  try {
+    // eslint-disable-next-line no-console
+    console.log("Received message from content script:", message);
+  } catch (_) {}
+});
+
 async function checkUrlForPhishing(tabId, urlString) {
   // Applies several simple heuristics to flag likely phishing URLs.
   // Stores the result in chrome.storage.local as { isSuspicious: boolean }.

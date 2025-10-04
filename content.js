@@ -1,4 +1,5 @@
 // Inject a large red semi-transparent overlay warning about possible phishing
+// Existing overlay injection retained; add link hover logging below
 (function injectPhishingWarningOverlay() {
   const OVERLAY_ID = "phishing-warning-overlay";
   if (document.getElementById(OVERLAY_ID)) {
@@ -89,3 +90,21 @@
   overlay.appendChild(panel);
   document.documentElement.appendChild(overlay);
 })();
+
+// Add mouseover listener to log hrefs of <a> elements
+document.addEventListener("mouseover", (event) => {
+  const target = event.target;
+  // Traverse up to find nearest anchor in case of nested elements
+  const anchor = target instanceof Element ? target.closest("a[href]") : null;
+  if (anchor && anchor.href) {
+    try {
+      // Log locally for now
+      // eslint-disable-next-line no-console
+      console.log("Hover link:", anchor.href);
+      // Potential future messaging to background:
+      // chrome.runtime.sendMessage({ type: "linkHover", href: anchor.href });
+    } catch (_) {
+      // Ignore logging errors
+    }
+  }
+}, true);
