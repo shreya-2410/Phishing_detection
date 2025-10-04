@@ -165,16 +165,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (typeof tabId === "number") {
         // Run phishing check, then respond to content script with the result
         (async () => {
-          const result = await (async () => {
-            try {
-              await checkUrlForPhishing(tabId, message.url);
-              // Read latest stored status as a proxy for the result
-              const { isSuspicious } = await chrome.storage.local.get("isSuspicious");
-              return Boolean(isSuspicious);
-            } catch (_) {
-              return false;
-            }
-          })();
+          let result = false;
+          try {
+            const res = await checkUrlForPhishing(tabId, message.url);
+            result = Boolean(res);
+          } catch (_) {
+            result = false;
+          }
           try {
             sendResponse({ isSuspicious: result });
           } catch (_) {}
@@ -368,6 +365,7 @@ async function checkUrlForPhishing(tabId, urlString) {
     try {
       await chrome.action.setIcon({ tabId, path: suspicious ? ICON_WARNING : ICON_SAFE });
     } catch (_) {}
+    return suspicious;
   } catch (e) {
     // Ignore unexpected errors
   }
