@@ -419,3 +419,47 @@ async function loadModelAndPredict(url) {
     return null;
   }
 }
+
+/**
+ * Extracts a fixed-length numeric feature vector from a URL string.
+ * Feature order:
+ *  [0] urlLength            - Total length of the URL string
+ *  [1] dotCount             - Count of '.' characters in the full URL
+ *  [2] hyphenCount          - Count of '-' characters in the full URL
+ *  [3] usesHttps            - 1 if protocol is HTTPS, else 0
+ *  [4] hostIsIp             - 1 if hostname is an IP address, else 0
+ * The function is resilient to missing schemes and malformed URLs.
+ */
+function extractFeatures(urlString) {
+  const input = typeof urlString === "string" ? urlString : "";
+  const urlLength = input.length;
+  const dotCount = (input.match(/\./g) || []).length;
+  const hyphenCount = (input.match(/-/g) || []).length;
+
+  let usesHttps = 0;
+  let hostIsIp = 0;
+
+  let parsed = null;
+  try {
+    parsed = new URL(input);
+  } catch (_) {
+    // If scheme is missing, try http:// prefix
+    try {
+      parsed = new URL("http://" + input);
+    } catch (_) {
+      parsed = null;
+    }
+  }
+
+  if (parsed) {
+    usesHttps = parsed.protocol === "https:" ? 1 : 0;
+    try {
+      const hostname = parsed.hostname.toLowerCase();
+      hostIsIp = isIpAddress(hostname) ? 1 : 0;
+    } catch (_) {
+      hostIsIp = 0;
+    }
+  }
+
+  return [urlLength, dotCount, hyphenCount, usesHttps, hostIsIp];
+}
