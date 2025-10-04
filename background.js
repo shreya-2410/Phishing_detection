@@ -4,6 +4,9 @@ const BADGE_WARN_TEXT = "WARN";
 const ICON_SAFE = "icon_safe.png";
 const ICON_WARNING = "icon_warning.png";
 const ICON_DEFAULT = "icon_default.png";
+// ML decision thresholds
+const ML_HIGH_THRESHOLD = 0.8; // Strong signal of phishing
+const ML_LOW_THRESHOLD = 0.55; // Weak-to-moderate signal
 
 function isIpAddress(hostname) {
   // IPv4 check
@@ -223,6 +226,8 @@ async function checkUrlForPhishing(tabId, urlString) {
 
     let suspicious = false;
     let reason = null;
+    const reasonsList = [];
+    const strongSignals = [];
 
     // 1) Long/obfuscated URL: Excessive length and encoding may hide the true destination.
     //    Attackers often use very long paths/queries or heavy percent-encoding to obscure intent.
@@ -233,6 +238,7 @@ async function checkUrlForPhishing(tabId, urlString) {
     const tooManySegments = pathSegments >= 6;
     if (urlIsVeryLong || manyEncodedSegments || tooManySegments) {
       suspicious = true;
+      reasonsList.push("long_obfuscated");
       if (!reason) reason = "long/obfuscated URL"; // Hard to visually verify destination
     }
 
@@ -240,6 +246,8 @@ async function checkUrlForPhishing(tabId, urlString) {
     //    Legitimate brands rarely ask users to log in on a bare IP address.
     if (!suspicious && isIpAddress(hostname)) {
       suspicious = true;
+      reasonsList.push("ip_host");
+      strongSignals.push("ip_host");
       if (!reason) reason = "contains IP address"; // Brands seldom use bare IPs for user actions
     }
 
@@ -283,6 +291,7 @@ async function checkUrlForPhishing(tabId, urlString) {
     });
     if (!suspicious && looksLikeBrand) {
       suspicious = true;
+      reasonsList.push("brand_impersonation");
       if (!reason) reason = "brand impersonation"; // Character substitutions mimic trusted brands
     }
 
@@ -297,6 +306,8 @@ async function checkUrlForPhishing(tabId, urlString) {
     );
     if (!suspicious && hasAtInUrl && isIpAddress(hostname) && brandInUserInfo) {
       suspicious = true;
+      reasonsList.push("brand_userinfo_ip");
+      strongSignals.push("brand_userinfo_ip");
       if (!reason) reason = "brand in userinfo with IP host"; // Misleads by placing brand before '@'
     }
 
@@ -309,6 +320,8 @@ async function checkUrlForPhishing(tabId, urlString) {
     const brandAppearsAndIp = brands.some((brand) => hostname.includes(brand)) && hostnameHasIp;
     if (!suspicious && (brandAppearsAndIp || brandFollowedByDigitsInSLD)) {
       suspicious = true;
+      reasonsList.push("brand_digits_ip");
+      strongSignals.push("brand_digits_ip");
       if (!reason) reason = "brand with digits/IP in hostname"; // Adds digits/IP to trusted brand name
     }
 
@@ -317,6 +330,7 @@ async function checkUrlForPhishing(tabId, urlString) {
     const usesPunycode = hostname.includes("xn--");
     if (!suspicious && usesPunycode) {
       suspicious = true;
+      reasonsList.push("punycode");
       if (!reason) reason = "punycode/IDN usage"; // IDN can hide deceptive look-alike characters
     }
 
@@ -325,6 +339,7 @@ async function checkUrlForPhishing(tabId, urlString) {
     const subdomainCount = Math.max(labels.length - 2, 0);
     if (!suspicious && (hyphenCount >= 4 || subdomainCount >= 3)) {
       suspicious = true;
+      reasonsList.push("structure_noisy");
       if (!reason) reason = "excessive subdomains/hyphens"; // Overly complex hosts confuse true domain
     }
 
@@ -351,6 +366,7 @@ async function checkUrlForPhishing(tabId, urlString) {
     ]);
     if (!suspicious && hasSensitiveKeyword && nonStandardTlds.has(tld)) {
       suspicious = true;
+      reasonsList.push("keyword_tld");
       if (!reason) reason = "sensitive keywords with non-standard TLD"; // Cheap TLD plus login keywords
     }
 
@@ -362,7 +378,31 @@ async function checkUrlForPhishing(tabId, urlString) {
     const veryLongAndComplex = fullUrl.length >= 220 || (fullUrl.length >= 160 && (nonAlnumRatio >= 0.35 || queryCount >= 10));
     if (!suspicious && veryLongAndComplex) {
       suspicious = true;
+      reasonsList.push("very_complex");
       if (!reason) reason = "very long and complex URL"; // Hard-to-read URLs can conceal malicious intent
+    }
+
+    // Integrate ML model prediction to reduce false positives.
+    // Strategy:
+    // - If the ML score is high (>= ML_HIGH_THRESHOLD), mark as suspicious.
+    // - If ML score is moderate (< high) and there are no strong heuristic signals, prefer ML and clear suspicion.
+    // - If strong signals exist, keep suspicious even if ML is low (defense in depth).
+    try {
+      const mlScore = await loadModelAndPredict(fullUrl);
+      if (typeof mlScore === "number") {
+        if (mlScore >= ML_HIGH_THRESHOLD) {
+          suspicious = true;
+          if (!reason) reason = `ml_high_score_${mlScore.toFixed(2)}`;
+        } else if (strongSignals.length === 0) {
+          // Let ML override softer heuristics when it disagrees
+          if (mlScore < ML_LOW_THRESHOLD) {
+            suspicious = false;
+            reason = null;
+          }
+        }
+      }
+    } catch (_) {
+      // If ML path fails, fall back to heuristics-only
     }
 
     // Persist detection status and update action icon
