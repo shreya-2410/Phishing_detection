@@ -28,28 +28,13 @@ A Chrome extension that helps users identify potential phishing attempts in thei
 
 ### 📧 Email Provider Support
 - Gmail
-- Outlook
-- Yahoo Mail
-- (More providers coming soon)
 
-## Installation
 
-1. Clone this repository or download the source code
-```bash
-git clone https://github.com/RohinSequeira/phishing_detection.git
-```
 
-2. Open Chrome and navigate to `chrome://extensions/`
-
-3. Enable "Developer mode" in the top right corner
-
-4. Click "Load unpacked" and select the extension directory
-
-5. The extension icon should now appear in your Chrome toolbar
 
 ## Usage
 
-1. Open an email in a supported email provider (Gmail, Outlook, or Yahoo Mail)
+1. Open an email in a supported email provider (Gmail)
 
 2. Click the Email Phishing Detector extension icon
 
@@ -87,16 +72,6 @@ The extension checks for:
 - No email content is sent to external servers
 - All analysis is performed locally
 - No sensitive information is collected or stored
-
-## Contributing
-
-Contributions are welcome! Here are some ways you can help:
-
-- Report bugs
-- Suggest new features
-- Add support for more email providers
-- Improve detection patterns
-- Enhance the user interface
 
 ## Future Enhancements
 
