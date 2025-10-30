@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Email Phishing Detector</title>
+  <style>
+    body {
+      width: 350px;
+      padding: 15px;
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      background: #f8f9fa;
+    }
+
+    .container {
+      background: white;
+      border-radius: 12px;
+      padding: 15px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+
+    h1 {
+      font-size: 18px;
+      color: #2d3436;
+      margin: 0 0 15px 0;
+      text-align: center;
+    }
+
+    .risk-level {
+      text-align: center;
+      margin: 20px 0;
+      padding: 10px;
+      border-radius: 8px;
+      font-weight: bold;
+    }
+
+    .high-risk {
+      background-color: #ffebee;
+      color: #c62828;
+      border: 1px solid #ffcdd2;
+    }
+
+    .suspicious {
+      background-color: #fff3e0;
+      color: #ef6c00;
+      border: 1px solid #ffe0b2;
+    }
+
+    .low-risk {
+      background-color: #e8f5e9;
+      color: #2e7d32;
+      border: 1px solid #c8e6c9;
+    }
+
+    .warning-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 15px 0;
+    }
+
+    .badge {
+      padding: 6px 12px;
+      border-radius: 15px;
+      font-size: 13px;
+      background: #f1f3f4;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .badge.active {
+      background: #ffeaa7;
+      color: #d35400;
+    }
+
+    .details {
+      margin-top: 15px;
+      font-size: 13px;
+      color: #636e72;
+    }
+
+    .scan-btn {
+      display: block;
+      width: 100%;
+      padding: 10px;
+      background: #6c5ce7;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    .scan-btn:hover {
+      background: #5f3dc4;
+    }
+
+    .loading {
+      text-align: center;
+      color: #636e72;
+    }
+
+    .error-message {
+      color: #ff7675;
+      text-align: center;
+      margin-top: 10px;
+      font-size: 13px;
+      display: none;
+    }
+
+    .recommendations {
+      margin-top: 15px;
+      padding: 10px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+
+    .recommendations h3 {
+      margin: 0 0 8px 0;
+      color: #2d3436;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>✉️ Phishing Detector</h1>
+    <button id="scanBtn" class="scan-btn">Scan Current Email</button>
+    
+    <div id="results" style="display: none;">
+      <div id="riskLevel" class="risk-level"></div>
+      
+      <div class="warning-badges" id="warningBadges">
+        <div class="badge" data-type="urgency">🚨 Urgency Tactics</div>
+        <div class="badge" data-type="links">🔗 Suspicious Links</div>
+        <div class="badge" data-type="generic">👤 Generic/Impersonal</div>
+        <div class="badge" data-type="sensitive">⚠️ Asks for Sensitive Info</div>
+        <div class="badge" data-type="pressure">🕒 Time Pressure</div>
+        <div class="badge" data-type="spoofing">🏢 Possible Spoofing</div>
+      </div>
+      
+      <div id="details" class="details">
+        <!-- Details will be populated by JavaScript -->
+      </div>
+
+      <div id="recommendations" class="recommendations">
+        <h3>Recommendations:</h3>
+        <ul id="recommendationsList">
+          <!-- Recommendations will be populated by JavaScript -->
+        </ul>
+      </div>
+    </div>
+
+    <div id="loading" class="loading" style="display: none;">
+      Analyzing email... 🔍
+    </div>
+    <div id="errorMessage" class="error-message"></div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html> 
